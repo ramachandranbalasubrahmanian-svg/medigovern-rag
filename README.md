@@ -5,7 +5,21 @@
 
 **All data is 100% synthetic. No real PHI. Freely publishable.**
 
-Aligned to [CMS-0057-F](https://www.cms.gov/initiatives/burden-reduction/overview/interoperability/policies-regulations/cms-interoperability-prior-authorization-final-rule-cms-0057-f) (effective 2026/2027) — demonstrating the governance layer a payer needs to answer "does this require PA, under which policy, and is anything missing?" within the 72-hour / 7-day regulatory clock.
+🔗 **Live dashboard:** [medigovern-insight.lovable.app](https://medigovern-insight.lovable.app) &nbsp;|&nbsp; **API:** [medigovern-rag-production.up.railway.app](https://medigovern-rag-production.up.railway.app)
+
+---
+
+## What It Is
+
+**MediGovern RAG** is a production-grade, data-governed retrieval-augmented generation pipeline built for healthcare prior authorization. It ingests heterogeneous source data — policy PDFs, CSV benefit tables, and FHIR patient records — runs every document through a six-rule data quality gate before any embedding is stored, and answers clinical coverage questions with grounded citations, confidence scoring, and a deliberate ABSTAIN path when evidence is ambiguous or policies conflict. The result is not a chatbot layered over documents; it is an auditable decision-support system that can demonstrate, record by record, why a recommendation was made and on which policy clause it rests.
+
+## Why It Matters: CMS-0057-F
+
+The system is built around a real compliance deadline. [CMS-0057-F](https://www.cms.gov/initiatives/burden-reduction/overview/interoperability/policies-regulations/cms-interoperability-prior-authorization-final-rule-cms-0057-f) — the Centers for Medicare & Medicaid Services' Interoperability and Prior Authorization rule — requires health plans to respond to standard PA requests within seven business days by 2026 and urgent requests within **72 hours by 2027**, and to expose prior authorization data via standardized FHIR APIs. MediGovern RAG operationalizes those obligations: the six-rule DQ gate quarantines expired, incomplete, or conflicting policies before they corrupt a retrieval result; an immutable audit packet captures every retrieval decision; and the governance dashboard gives compliance teams real-time visibility into what the system knows, what it has rejected, and why. When a regulator asks "how did you reach that determination?", the answer is already logged.
+
+## What Makes It Different from "Chat with PDF"
+
+What separates MediGovern RAG from generic document Q&A is the governance layer *underneath* the generation step. Semantic search using BAAI/bge-small-en-v1.5 embeddings in pgvector grounds retrieval in actual policy text. The confidence classifier — High, Medium, or Low — is computed from retrieval scores and evidence coverage, not asserted by the model. When two retrieved clauses contradict each other, the system does not pick a side: it issues an explicit **ABSTAIN** with the conflicting sources named, giving human reviewers exactly the information they need without fabricating a resolution. Missing patient context required for a PA determination surfaces as a structured gap, not a hallucination. Every query, every retrieved chunk, and every generated answer is stored as a full lineage record. That audit trail is the product — the answers are a byproduct of it.
 
 ---
 
@@ -234,9 +248,9 @@ The synthetic data deliberately seeds defects for the DQ layer to catch on camer
 
 ---
 
-## Built with AI — design decisions
+## Built with AI
 
-This project was built collaboratively between human architectural decisions and AI agent implementation.
+Architecture, governance design, and all key decisions were made by me: the six-rule data quality framework, the ABSTAIN logic and when it fires, confidence scoring thresholds, audit schema design, and the CMS-0057-F compliance mapping. **Cursor** (AI coding agent) implemented the entire Python backend — ingestion pipeline, DQ gate, chunking and embedding, RAG retrieval loop, FastAPI endpoints, and SQLAlchemy models. **Lovable** (AI UI agent) built the React governance dashboard — Overview, Policy Catalog with filters, Quarantine Queue, Ask/Q&A, and Audit Viewer — from my design specifications. The AI agents wrote the code. I specified what the code needed to do, why it needed to do it, and what "correct" looks like in a healthcare compliance context.
 
 ### Human decisions (the things that make it senior, not a student project)
 
@@ -254,12 +268,16 @@ This project was built collaboratively between human architectural decisions and
 
 ### What AI agents implemented
 
+**Cursor (backend):**
 - All Python code (ingestion loaders, DQ rule engine, chunker, pgvector indexer, retriever, generator, audit HTML renderer, FastAPI routes)
-- SQLAlchemy table definitions
-- Dockerfile and deploy guide
+- SQLAlchemy table definitions, Dockerfile, Railway deploy config
 - Test suite (51 tests)
 - Synthetic data generation script (12 PDFs with embedded metadata, FHIR bundles, CSVs)
-- This README
+
+**Lovable (frontend):**
+- React governance dashboard — Overview, Policy Catalog with live filters, Quarantine Queue, Ask/Q&A with confidence badges, Audit Viewer with download
+- Server-side API proxy (solved CORS across all environments)
+- Supabase auth integration
 
 ---
 
