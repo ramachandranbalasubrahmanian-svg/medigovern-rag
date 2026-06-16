@@ -1,97 +1,305 @@
 # MediGovern RAG
 
-Healthcare prior-authorization data-governance RAG pipeline — FHIR-aware ingestion, metadata-driven retrieval, data-quality gating, and auditable policy citations.
+> **Healthcare prior-authorization data-governance RAG pipeline.**
+> FHIR-aware ingestion · metadata-driven retrieval · data-quality gating · auditable policy citations.
 
-Companion spec: [`MediGovern_RAG_Implementation_Plan.md`](MediGovern_RAG_Implementation_Plan.md)
+**All data is 100% synthetic. No real PHI. Freely publishable.**
 
-## Getting started
+Aligned to [CMS-0057-F](https://www.cms.gov/initiatives/burden-reduction/overview/interoperability/policies-regulations/cms-interoperability-prior-authorization-final-rule-cms-0057-f) (effective 2026/2027) — demonstrating the governance layer a payer needs to answer "does this require PA, under which policy, and is anything missing?" within the 72-hour / 7-day regulatory clock.
+
+---
+
+## Architecture
+
+```
+SOURCES                INGESTION              GOVERNANCE GATE         KNOWLEDGE LAYER      SERVING
+──────                 ─────────              ───────────────         ───────────────      ───────
+Policy PDFs       ┐                      ┌─ Metadata extraction   ┌─ Chunking             ┌─ Metadata pre-filter
+Clinical guides   │                      │  (type, IDs, dates,    │  + embeddings         │  (plan/payer/CPT/date)
+Plan benefits     ├─► pipeline/         ─┤  CPT/ICD, payer, plan) ├─► pgvector +       ──►├─ Semantic search
+FHIR bundles      │   ingestion/         │                         │  metadata index       │
+Provider dir      │   (typed loaders)    └─ DQ rule engine         └─ Lineage pointers     ├─ Cited answer
+Claims CSV        ┘                         (6 rule families)                              │  + confidence band
+                                            pass / warn / quarantine                       ├─ Audit packet
+                                                    │                                      │  (JSON + HTML)
+                                                    ▼                                      └─ Immutable audit log
+                                          Quarantine queue
+                                          DQ report (JSON)
+```
+
+**Stack:** Python 3.11 · FastAPI · SQLAlchemy · Postgres + pgvector · pydantic · reportlab · pypdf · OpenAI / Anthropic (swappable) · Docker Compose
+
+---
+
+## Getting started locally
 
 ### Prerequisites
-
 - Python 3.11+
-- Docker (for local Postgres + pgvector)
-- Make (optional, for convenience targets)
+- Docker (for Postgres + pgvector)
 
 ### 1. Clone and configure
 
 ```bash
+git clone https://github.com/ramachandranbalasubrahmanian-svg/medigovern-rag.git
 cd medigovern-rag
 cp .env.example .env
-# Edit .env — set OPENAI_API_KEY or ANTHROPIC_API_KEY when ready
-```
-
-For local development without API keys, set:
-
-```env
-LLM_PROVIDER=local
-EMBEDDINGS_PROVIDER=local
+# Paste your API key — or leave blank to use the local stub (no real LLM calls)
+# For local dev without an API key set:
+#   LLM_PROVIDER=local
+#   EMBEDDINGS_PROVIDER=local
+#   EMBEDDING_DIMENSION=8
 ```
 
 ### 2. Install dependencies
 
 ```bash
 make install
-# or: python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# or: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 ```
 
-### 3. Start the database
+### 3. Start the database and seed the knowledge base
 
 ```bash
-make up
+make up                  # starts Postgres+pgvector, runs init_db
+make generate-data       # generates 12 synthetic policy PDFs + CSV + FHIR bundles
+make ingest-and-index    # load → DQ gate → chunk → embed → pgvector
 ```
 
-This runs `docker compose up -d` and initializes the schema (pgvector extension + `document_metadata` table).
+Or — if `SEED_ON_STARTUP=true` (the default), the first `make run` will auto-seed on startup.
 
-### 4. Confirm schema was created
+### 4. Confirm the schema
 
 ```bash
 docker compose exec db psql -U medigovern -d medigovern -c "\dt"
-docker compose exec db psql -U medigovern -d medigovern -c "\d document_metadata"
+# Tables: document_metadata, document_chunks, audit_log
 ```
-
-You should see the `document_metadata` table with columns matching the canonical metadata model (section 5.2 of the implementation plan).
 
 ### 5. Run tests
 
 ```bash
 make test
+# 51 passed, 1 skipped (DB integration — needs Postgres)
 ```
 
 ### 6. Start the API
 
 ```bash
 make run
+# → http://localhost:8000
+# → http://localhost:8000/docs  (Swagger)
 ```
 
-Open http://localhost:8000/health — expect `{"status":"ok","service":"medigovern-rag"}`.
+---
+
+## API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/` | Service info |
+| `GET` | `/health` | Health check (DB ping) |
+| `POST` | `/ask` | Ask a prior-auth question |
+| `GET` | `/audit/{id}` | Full audit packet (JSON) |
+| `GET` | `/audit/{id}/html` | Rendered HTML audit report |
+| `GET` | `/audit` | Recent query history |
+| `GET` | `/policies` | Policy catalog (filterable) |
+| `GET` | `/policies/{id}` | Single policy detail |
+| `GET` | `/quarantine` | Quarantined records + DQ reasons |
+| `GET` | `/providers/status` | LLM/embeddings config status |
+| `GET` | `/docs` | Swagger UI |
+
+### Example: POST /ask
+
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Does CPT 70553 require prior authorization for this plan?",
+    "plan_id": "GOLD-PPO",
+    "payer": "AcmeHealth",
+    "cpt": "70553"
+  }'
+```
+
+Response:
+```json
+{
+  "audit_packet_id": "...",
+  "answer": "⛔ NEEDS HUMAN REVIEW — Conflicting policies detected...",
+  "confidence": "ABSTAIN",
+  "confidence_rationale": "Active policies with conflicting PA requirements...",
+  "citations": [...],
+  "missing_data": [],
+  "abstained": true,
+  "abstain_reason": "Conflict: POL-70553-A (PA=YES) vs POL-70553-B (PA=NO)"
+}
+```
+
+### Example: GET /policies
+
+```bash
+curl "http://localhost:8000/policies?payer=AcmeHealth&cpt=70553"
+```
+
+### Example: GET /quarantine
+
+```bash
+curl http://localhost:8000/quarantine
+# Returns the 4 seeded governance defects:
+# POL-70553-EXP (expired), POL-70553-A + POL-70553-B (conflict), POL-NODATE (missing date)
+```
+
+---
+
+## The 5 demo questions
+
+These anchor the build and the demo video. Run them with:
+
+```bash
+make eval          # requires running Postgres + seeded index
+make eval-offline  # logic-only (no DB needed) ✓
+```
+
+| # | Question | Expected behaviour |
+|---|----------|--------------------|
+| Q1 | Does CPT 70553 require prior authorization for GOLD-PPO? | **ABSTAIN** — conflicting policies |
+| Q2 | Which policy supports the denial reason for a knee replacement? | Answer citing POL-27447 |
+| Q3 | What patient data is missing before submitting auth for CPT 70553? | Lists missing data; expired policy excluded |
+| Q4 | Are there conflicting coverage rules for CPT 70553 on GOLD-PPO? | **ABSTAIN** — surfaces conflict detail |
+| Q5 | Show the lineage for the prior auth recommendation for CPT 93306. | Cited answer with lineage from POL-93306 |
+
+---
+
+## Deploying to Railway (free tier)
+
+Railway auto-detects the `Dockerfile` and provisions a Postgres add-on.
+
+### Steps
+
+1. Push this repo to GitHub (already done).
+2. Go to [railway.app](https://railway.app) → **New Project → Deploy from GitHub repo**.
+3. Select `medigovern-rag`. Railway builds the image from `Dockerfile`.
+4. In the **Variables** tab, add:
+
+```
+DATABASE_URL          ${{Postgres.DATABASE_URL}}   # auto-injected from Postgres addon
+LLM_PROVIDER          openai
+OPENAI_API_KEY        sk-...
+OPENAI_MODEL          gpt-4o-mini
+EMBEDDINGS_PROVIDER   openai
+OPENAI_EMBEDDING_MODEL text-embedding-3-small
+SEED_ON_STARTUP       true
+CORS_ORIGINS          https://your-lovable-app.lovable.app,http://localhost:3000
+```
+
+5. Add a **Postgres** plugin from the Railway dashboard. Railway injects `DATABASE_URL` automatically.
+6. **Deploy** — Railway builds, runs `generate_synthetic_data.py` (baked into the image), then on first boot seeds the knowledge base automatically.
+7. Your base URL: `https://<project>.up.railway.app`
+
+### Deploying to Render (free tier)
+
+1. Go to [render.com](https://render.com) → **New Web Service → Connect GitHub**.
+2. Runtime: **Docker**. Build command: *(auto from Dockerfile)*.
+3. Add a **PostgreSQL** database from the Render dashboard; copy the **Internal Database URL**.
+4. Set the same env vars as above, with `DATABASE_URL` pointing to Render's internal URL.
+5. Deploy. On first start the API seeds itself.
+
+### Required environment variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DATABASE_URL` | Postgres connection string with pgvector | Yes |
+| `LLM_PROVIDER` | `openai` / `anthropic` / `local` | Yes |
+| `OPENAI_API_KEY` | OpenAI API key (if `LLM_PROVIDER=openai`) | Conditional |
+| `ANTHROPIC_API_KEY` | Anthropic API key (if `LLM_PROVIDER=anthropic`) | Conditional |
+| `EMBEDDINGS_PROVIDER` | `openai` / `local` | Yes |
+| `SEED_ON_STARTUP` | Auto-seed on empty DB (`true`/`false`) | Optional (default `true`) |
+| `CORS_ORIGINS` | Comma-separated allowed origins | Optional |
+
+---
+
+## Seeded governance defects
+
+The synthetic data deliberately seeds defects for the DQ layer to catch on camera:
+
+| Defect | Document | Rule | Status |
+|--------|----------|------|--------|
+| **Expired policy** | `POL-70553-EXP` (expiry 2024-01-01) | `timeliness.expired` | QUARANTINED |
+| **Conflicting PA rules** | `POL-70553-A` (PA=YES) + `POL-70553-B` (PA=NO) same CPT/plan | `consistency.conflict` | QUARANTINED |
+| **Missing effective date** | `POL-NODATE` | `completeness.missing_effective_date` | QUARANTINED |
+| **Duplicate NPI** | Dr. Alice Chen × 2 | `uniqueness.duplicate_npi` | WARNING |
+| **Invalid NPI checksum** | Dr. Invalid One/Two | `validity.invalid_npi` | WARNING |
+| **Missing patient diagnosis** | `patient_bundle_003.json` | `patient_context.missing_diagnosis` | WARNING |
+
+---
+
+## Built with AI — design decisions
+
+This project was built collaboratively between human architectural decisions and AI agent implementation.
+
+### Human decisions (the things that make it senior, not a student project)
+
+- **Metadata model as governance backbone** — choosing to make the canonical metadata record (section 5.2: `policy_id`, `payer`, `plan_id`, `effective_date`, `expiry_date`, `procedure_codes`, `dq_status`, `dq_findings`) the governance spine that flows through ingestion, chunking, retrieval, and audit. This is a DAMA-DMBOK design choice, not a technical default.
+
+- **DQ gate before embedding, not after** — deliberately quarantining records *before* they reach the vector store so expired/conflicting/incomplete policies can never be retrieved, even accidentally. Most RAG demos skip this entirely.
+
+- **Abstain-on-conflict, not best-guess** — choosing to return "NEEDS HUMAN REVIEW" when active policies conflict, rather than picking the more recent one. This is the correct clinical-governance stance and the key differentiator vs "chat with PDF."
+
+- **Audit packet as a first-class artifact** — making every answered question produce an immutable, downloadable audit packet (question → filters → retrieved chunks with lineage → answer → confidence) before writing a single line of retrieval code. This is what lets you say "auditable" with a straight face in a CMS-0057-F context.
+
+- **Synthetic data seeded with deliberate defects** — designing the test data to *fail* specific DQ rules (expired policy, two conflicting policies for the same CPT, missing effective date) so the governance layer has something to catch on camera. A governance demo without failing cases is just a CRUD app.
+
+- **Confidence in 3 bands, not a raw score** — choosing High/Medium/Low/ABSTAIN rather than a 0–1 float because clinical decision-support requires human-interpretable signals, not calibrated probabilities.
+
+### What AI agents implemented
+
+- All Python code (ingestion loaders, DQ rule engine, chunker, pgvector indexer, retriever, generator, audit HTML renderer, FastAPI routes)
+- SQLAlchemy table definitions
+- Dockerfile and deploy guide
+- Test suite (51 tests)
+- Synthetic data generation script (12 PDFs with embedded metadata, FHIR bundles, CSVs)
+- This README
+
+---
 
 ## Project structure
 
 ```
-app/           FastAPI service, config, pydantic models, SQLAlchemy tables
-pipeline/      Ingestion, DQ, embeddings, retrieval, audit (later phases)
-data/          Raw synthetic sources and generated outputs
-tests/         Unit tests
-scripts/       Database initialization helpers
+app/
+  api/          FastAPI routers (ask, audit, catalog)
+  db/           SQLAlchemy ORM models
+  models/       Pydantic models (metadata, chunk, audit)
+  providers/    LLM + embeddings interfaces (OpenAI, Anthropic, local stub)
+  config.py     Settings from .env
+  database.py   Engine, sessions, init_db
+  main.py       FastAPI app + CORS + startup seeding
+
+pipeline/
+  ingestion/    Typed loaders (PDF, CSV, FHIR) + DQ pipeline
+  dq/           Rule engine (6 rule families) + report
+  embeddings/   Chunker + pgvector indexer + ingest-and-index orchestrator
+  retrieval/    Metadata pre-filter + semantic search + conflict detector
+  audit/        Audit packet model + append-only log + HTML renderer
+
+data/
+  raw/          Synthetic source files (generated, not committed)
+  generated/    DQ reports, index reports
+
+scripts/
+  generate_synthetic_data.py
+  run_ingestion.py
+  ingest_and_index.py
+  eval_demo_questions.py
+  init_db.py
+
+tests/          51 unit + integration tests
 ```
 
-## Phase 1 scope (current)
+---
 
-- Python 3.11 project scaffolding
-- Postgres + pgvector via Docker Compose
-- Canonical metadata model (pydantic + SQLAlchemy)
-- Swappable LLM/embeddings provider interface (OpenAI, Anthropic, local stub)
-- FastAPI skeleton with health check
-- Makefile: `make up`, `make test`, `make run`
+## Sources
 
-Later phases (ingestion, DQ, retrieval, audit) are stubbed under `pipeline/` and built in subsequent prompts.
-
-## Makefile targets
-
-| Target    | Description                          |
-|-----------|--------------------------------------|
-| `make up` | Start Postgres+pgvector, init schema |
-| `make down` | Stop database containers           |
-| `make test` | Run pytest                         |
-| `make run`  | Start FastAPI dev server           |
-| `make init-db` | Create pgvector + tables only   |
+- [CMS-0057-F — Interoperability and Prior Authorization Final Rule](https://www.cms.gov/initiatives/burden-reduction/overview/interoperability/policies-regulations/cms-interoperability-prior-authorization-final-rule-cms-0057-f)
+- [DAMA-DMBOK — Data Management Body of Knowledge](https://dama.org/learning-resources/dama-data-management-body-of-knowledge-dmbok/)
+- [HL7 FHIR R4 Overview](https://hl7.org/fhir/overview.html)
+- [Synthea Synthetic Patient Generator](https://synthetichealth.github.io/synthea/)
+- [pgvector](https://github.com/pgvector/pgvector)

@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     embedding_dimension: int | None = Field(default=None, alias="EMBEDDING_DIMENSION")
     chunk_max_chars: int = Field(default=1200, alias="CHUNK_MAX_CHARS")
 
+    # CORS — comma-separated allowed origins for the front-end
+    cors_origins: str = Field(
+        default="http://localhost:3000,http://localhost:5173,https://*.lovable.app",
+        alias="CORS_ORIGINS",
+    )
+
+    # Seed the knowledge base on startup if empty (set to "false" to disable)
+    seed_on_startup: bool = Field(default=True, alias="SEED_ON_STARTUP")
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -1,4 +1,4 @@
-.PHONY: up down test run init-db install generate-data ingest ingest-and-index eval
+.PHONY: up down test run init-db install generate-data ingest ingest-and-index eval eval-offline
 
 up:
 	docker compose up -d
