@@ -67,4 +67,8 @@ def get_embeddings_provider(name: ProviderName | None = None) -> EmbeddingsProvi
         from app.providers.openai_provider import OpenAIEmbeddingsProvider
 
         return OpenAIEmbeddingsProvider()
+    if provider == "sentence-transformers":
+        from app.providers.fastembed_provider import FastEmbedEmbeddingsProvider
+
+        return FastEmbedEmbeddingsProvider()
     return LocalEmbeddingsProvider()

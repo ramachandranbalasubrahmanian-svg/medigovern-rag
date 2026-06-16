@@ -10,6 +10,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Pre-download the fastembed model at build time so first boot is instant.
+# The model (~30 MB, ONNX) is cached inside the image layer.
+RUN python -c "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5')"
+
 COPY . .
 
 # Generate synthetic source data at image build time so the container is

@@ -9,7 +9,7 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-ProviderName = Literal["openai", "anthropic", "local"]
+ProviderName = Literal["openai", "anthropic", "sentence-transformers", "local"]
 
 
 class Settings(BaseSettings):
@@ -26,9 +26,9 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
-    llm_provider: ProviderName = Field(default="openai", alias="LLM_PROVIDER")
+    llm_provider: ProviderName = Field(default="anthropic", alias="LLM_PROVIDER")
     embeddings_provider: ProviderName = Field(
-        default="openai", alias="EMBEDDINGS_PROVIDER"
+        default="sentence-transformers", alias="EMBEDDINGS_PROVIDER"
     )
 
     openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
@@ -71,4 +71,6 @@ def get_embedding_dimension(settings: Settings | None = None) -> int:
         return s.embedding_dimension
     if s.embeddings_provider == "openai":
         return 1536
+    if s.embeddings_provider == "sentence-transformers":
+        return 384
     return 8

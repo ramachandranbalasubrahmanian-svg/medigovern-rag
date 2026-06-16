@@ -27,7 +27,7 @@ Claims CSV        ┘                         (6 rule families)                 
                                           DQ report (JSON)
 ```
 
-**Stack:** Python 3.11 · FastAPI · SQLAlchemy · Postgres + pgvector · pydantic · reportlab · pypdf · OpenAI / Anthropic (swappable) · Docker Compose
+**Stack:** Python 3.11 · FastAPI · SQLAlchemy · Postgres + pgvector · pydantic · reportlab · pypdf · Anthropic Claude (LLM) · fastembed/ONNX (embeddings, no API key) · Docker Compose
 
 ---
 
@@ -43,8 +43,9 @@ Claims CSV        ┘                         (6 rule families)                 
 git clone https://github.com/ramachandranbalasubrahmanian-svg/medigovern-rag.git
 cd medigovern-rag
 cp .env.example .env
-# Paste your API key — or leave blank to use the local stub (no real LLM calls)
-# For local dev without an API key set:
+# Add your Anthropic key (only API key required — embeddings are free/local):
+#   ANTHROPIC_API_KEY=sk-ant-...
+# To run fully offline without any API key (stub mode):
 #   LLM_PROVIDER=local
 #   EMBEDDINGS_PROVIDER=local
 #   EMBEDDING_DIMENSION=8
@@ -182,17 +183,18 @@ Railway auto-detects the `Dockerfile` and provisions a Postgres add-on.
 
 ```
 DATABASE_URL          ${{Postgres.DATABASE_URL}}   # auto-injected from Postgres addon
-LLM_PROVIDER          openai
-OPENAI_API_KEY        sk-...
-OPENAI_MODEL          gpt-4o-mini
-EMBEDDINGS_PROVIDER   openai
-OPENAI_EMBEDDING_MODEL text-embedding-3-small
+LLM_PROVIDER          anthropic
+ANTHROPIC_API_KEY     sk-ant-...
+ANTHROPIC_MODEL       claude-haiku-4-5
+EMBEDDINGS_PROVIDER   sentence-transformers
 SEED_ON_STARTUP       true
 CORS_ORIGINS          https://your-lovable-app.lovable.app,http://localhost:3000
 ```
 
+> **No OpenAI key needed.** Embeddings run locally via `fastembed` (ONNX, baked into the image).
+
 5. Add a **Postgres** plugin from the Railway dashboard. Railway injects `DATABASE_URL` automatically.
-6. **Deploy** — Railway builds, runs `generate_synthetic_data.py` (baked into the image), then on first boot seeds the knowledge base automatically.
+6. **Deploy** — Railway builds the image (pre-downloads the embedding model), runs `generate_synthetic_data.py`, then on first boot seeds the knowledge base automatically.
 7. Your base URL: `https://<project>.up.railway.app`
 
 ### Deploying to Render (free tier)
@@ -208,10 +210,10 @@ CORS_ORIGINS          https://your-lovable-app.lovable.app,http://localhost:3000
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `DATABASE_URL` | Postgres connection string with pgvector | Yes |
-| `LLM_PROVIDER` | `openai` / `anthropic` / `local` | Yes |
-| `OPENAI_API_KEY` | OpenAI API key (if `LLM_PROVIDER=openai`) | Conditional |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if `LLM_PROVIDER=anthropic`) | Conditional |
-| `EMBEDDINGS_PROVIDER` | `openai` / `local` | Yes |
+| `LLM_PROVIDER` | `anthropic` / `openai` / `local` | Yes (default `anthropic`) |
+| `ANTHROPIC_API_KEY` | Anthropic API key | Yes (when `LLM_PROVIDER=anthropic`) |
+| `ANTHROPIC_MODEL` | Model name | Optional (default `claude-haiku-4-5`) |
+| `EMBEDDINGS_PROVIDER` | `sentence-transformers` / `openai` / `local` | Yes (default `sentence-transformers`) |
 | `SEED_ON_STARTUP` | Auto-seed on empty DB (`true`/`false`) | Optional (default `true`) |
 | `CORS_ORIGINS` | Comma-separated allowed origins | Optional |
 
