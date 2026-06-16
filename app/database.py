@@ -30,6 +30,7 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """Create pgvector extension and all tables."""
     from app.db import models  # noqa: F401 — register ORM models
+    from pipeline.audit import log as _audit_log  # noqa: F401 — register audit_log table
 
     with engine.begin() as conn:
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

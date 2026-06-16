@@ -1,4 +1,4 @@
-.PHONY: up down test run init-db install generate-data ingest ingest-and-index
+.PHONY: up down test run init-db install generate-data ingest ingest-and-index eval
 
 up:
 	docker compose up -d
@@ -24,6 +24,12 @@ ingest:
 
 ingest-and-index:
 	.venv/bin/python scripts/ingest_and_index.py
+
+eval:
+	.venv/bin/python scripts/eval_demo_questions.py
+
+eval-offline:
+	.venv/bin/python scripts/eval_demo_questions.py --offline
 
 test:
 	.venv/bin/pytest tests/ -v

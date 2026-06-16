@@ -43,10 +43,14 @@ def get_llm_provider(name: ProviderName | None = None) -> LLMProvider:
     provider = name or settings.llm_provider
 
     if provider == "openai":
+        if not settings.openai_api_key:
+            return LocalLLMProvider()
         from app.providers.openai_provider import OpenAILLMProvider
 
         return OpenAILLMProvider()
     if provider == "anthropic":
+        if not settings.anthropic_api_key:
+            return LocalLLMProvider()
         from app.providers.anthropic_provider import AnthropicLLMProvider
 
         return AnthropicLLMProvider()
