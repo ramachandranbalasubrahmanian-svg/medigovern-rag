@@ -58,6 +58,8 @@ def get_embeddings_provider(name: ProviderName | None = None) -> EmbeddingsProvi
     provider = name or settings.embeddings_provider
 
     if provider == "openai":
+        if not settings.openai_api_key:
+            return LocalEmbeddingsProvider()
         from app.providers.openai_provider import OpenAIEmbeddingsProvider
 
         return OpenAIEmbeddingsProvider()

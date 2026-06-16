@@ -45,7 +45,21 @@ class Settings(BaseSettings):
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
 
+    # Vector dimension — auto 8 (local) or 1536 (openai) when unset
+    embedding_dimension: int | None = Field(default=None, alias="EMBEDDING_DIMENSION")
+    chunk_max_chars: int = Field(default=1200, alias="CHUNK_MAX_CHARS")
+
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def get_embedding_dimension(settings: Settings | None = None) -> int:
+    """Resolved embedding vector size for pgvector column."""
+    s = settings or get_settings()
+    if s.embedding_dimension is not None:
+        return s.embedding_dimension
+    if s.embeddings_provider == "openai":
+        return 1536
+    return 8

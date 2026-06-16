@@ -1,4 +1,4 @@
-.PHONY: up down test run init-db install generate-data ingest
+.PHONY: up down test run init-db install generate-data ingest ingest-and-index
 
 up:
 	docker compose up -d
@@ -21,6 +21,9 @@ generate-data:
 
 ingest:
 	.venv/bin/python scripts/run_ingestion.py
+
+ingest-and-index:
+	.venv/bin/python scripts/ingest_and_index.py
 
 test:
 	.venv/bin/pytest tests/ -v
