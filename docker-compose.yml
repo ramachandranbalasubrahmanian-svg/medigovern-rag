@@ -1,0 +1,20 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: medigovern-db
+    environment:
+      POSTGRES_USER: medigovern
+      POSTGRES_PASSWORD: medigovern
+      POSTGRES_DB: medigovern
+    ports:
+      - "5432:5432"
+    volumes:
+      - medigovern_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U medigovern -d medigovern"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  medigovern_pgdata:
