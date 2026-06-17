@@ -312,7 +312,17 @@ scripts/
   init_db.py
 
 tests/          51 unit + integration tests
+
+lovable/        GA4 + Clarity integration files for medigovern-insight.lovable.app dashboard
 ```
+
+---
+
+## Dashboard analytics (GA4 + Clarity)
+
+Visitor analytics for the **Lovable dashboard** (`medigovern-insight.lovable.app`) — country, traffic source, session recordings, and RAG-specific events (queries, audit downloads).
+
+**Setup:** See [`lovable/LOVABLE_ANALYTICS_PROMPT.md`](lovable/LOVABLE_ANALYTICS_PROMPT.md) — paste the prompt into Lovable, add your GA4/Clarity IDs, and publish.
 
 ---
 

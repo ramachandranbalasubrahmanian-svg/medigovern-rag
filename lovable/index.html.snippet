@@ -1,0 +1,23 @@
+<!-- MediGovern — paste into index.html <head> after charset -->
+<script>
+(function () {
+  var ga4Id = "G-FE6TRT5KLL";
+  var prodDomains = ["medigovern-insight.lovable.app"];
+  if (prodDomains.indexOf(window.location.hostname) === -1) {
+    window.gtag = function () {};
+    return;
+  }
+
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { window.dataLayer.push(arguments); }
+  window.gtag = gtag;
+
+  var s = document.createElement("script");
+  s.async = true;
+  s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(ga4Id);
+  document.head.appendChild(s);
+
+  gtag("js", new Date());
+  gtag("config", ga4Id, { anonymize_ip: true, send_page_view: true });
+})();
+</script>
